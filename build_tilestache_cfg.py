@@ -7,14 +7,43 @@
 from os import path, walk
 import json
 
+# List of source subdirs and (optional) layer prefixes
+# Modify this list as needed:
+srcDirs = [
+    ('osm_massgis_tiles/server', ''),
+    ('lonely_buildings', ''),
+    ('TopOSM2/processed', 'toposm2-')
+]
+
+# Base structure of new tilestache.conf
+# Modify as needed:
+tsConf = {
+  'cache': {'name': 'Test'},
+  'layers': {}
+}
+
 allLayers = {}
 
 def modifyPaths(relpath, layer):
+  'Modifies the path of nodes referencing files'
   if 'provider' in layer.keys():
     if 'mapfile' in layer['provider'].keys():
       localpath = layer['provider']['mapfile'];
       if not path.isabs(localpath):
         layer['provider']['mapfile'] = path.join(relpath, localpath)
+
+def addPrefix(prefix, parent, nodeName, nodeValue, applicableKeyNames):
+  'Adds layer prefix to nodes referencing other layers'
+  if isinstance(nodeValue, dict):
+    for key in nodeValue.keys():
+      addPrefix(prefix, nodeValue, key, \
+         nodeValue[key], applicableKeyNames)     
+  elif isinstance(nodeValue, list):
+    for child in nodeValue:
+      addPrefix(prefix, nodeValue, None, child, applicableKeyNames)
+  else:
+    if nodeName in applicableKeyNames:
+      parent[nodeName] = prefix + nodeValue
 
 def processTilestacheCfg(relpath, layerPrefix = ''):
   filename = path.join(relpath, 'tilestache.cfg')
@@ -29,26 +58,17 @@ def processTilestacheCfg(relpath, layerPrefix = ''):
     layername = layerPrefix + layer
     print "  " + layername
     modifyPaths(relpath, layers[layer])
+    addPrefix(layerPrefix, layers, layer, layers[layer], ['src','mask'])
     if layername in allLayers.keys():
       print "Warning: Skipping duplicate layer name", layername
     else:
       allLayers[layername] = layers[layer]
     
-# List of source subdirs and (optional) layer prefixes
-srcDirs = [
-    ('osm', ''),
-    ('TopOSM2/processed', 'toposm2-')
-    ]
 
 # Process each source dir
 for (dirpath, prefix) in srcDirs:
   processTilestacheCfg(dirpath, prefix)
-
-# Build new tilestache.conf - modify as needed
-tsConf = {
-  'cache': {'name': 'Test'},
-  'layers': allLayers
-}
+tsConf['layers'] = allLayers
 
 # Format nicely and write to file
 with open('tilestache.cfg', 'w') as dest:
